@@ -1,0 +1,42 @@
+# =========================
+# SECRETOS Y CREDENCIALES
+# =========================
+# Ignorar variables de entorno (Aquí está tu OpenAI API Key)
+.env
+.env.*
+
+# Ignorar archivos de credenciales OAuth (Para cuando integres Google Calendar)
+credentials.json
+token.json
+client_secret*.json
+
+# =========================
+# ENTORNOS VIRTUALES
+# =========================
+# Ignorar la carpeta de tu entorno virtual actual
+agenta/
+# Otros nombres comunes de entornos virtuales
+venv/
+.venv/
+env/
+
+# =========================
+# CACHÉ DE PYTHON
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================
+# ARCHIVOS DE SO Y EDITORES
+# =========================
+.DS_Store
+.vscode/
+.idea/
+
+# =========================
+# LOGS Y BASES DE DATOS LOCALES
+# =========================
+*.log
+*.sqlite3
+*.db
