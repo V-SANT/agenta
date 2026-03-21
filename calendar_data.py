@@ -8,8 +8,8 @@ from dataclasses import dataclass
 class CalendarEvent:
     id: str
     title: str
-    date: str          # formato: "YYYY-MM-DD"
-    time: str          # formato: "HH:MM" o "" si es todo el día
+    date: str         
+    time: str          
     duration_minutes: int = 60
     location: str = ""
     description: str = ""
@@ -19,8 +19,8 @@ class CalendarEvent:
 class Task:
     id: str
     title: str
-    due_date: str      # formato: "YYYY-MM-DD"
-    priority: str = "media"   # alta | media | baja
+    due_date: str     
+    priority: str = "media"   
     completed: bool = False
     notes: str = ""
 

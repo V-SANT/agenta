@@ -120,9 +120,3 @@ llm = ChatOpenAI(
 )
 ```
 
----
-
-## 🔒 Seguridad
-
-- Nunca expongas tu `.env` públicamente.
-- Agrega `.env` a `.gitignore`:
