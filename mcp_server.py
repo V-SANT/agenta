@@ -5,6 +5,7 @@ from bson.objectid import ObjectId
 from dotenv import load_dotenv
 import os
 import logging
+import sys
 
 # --- CONEXIÓN A MONGODB ---
 load_dotenv()
@@ -21,20 +22,19 @@ except Exception as e:
 # Inicializamos el servidor MCP dándole un nombre descriptivo
 mcp = FastMCP("AgentaDataServer")
 
-# Usamos el decorador @mcp.tool() para exponer esta función a los agentes
 @mcp.tool()
 def get_events(target_date: str) -> List[Dict]:
-    """
-    Obtiene los eventos del calendario para una fecha específica.
-    Formato de fecha esperado: YYYY-MM-DD
-    """
-    # TODO: Aquí implementaremos la conexión con la API de Google Calendar usando OAuth
-    print(f"[MCP] Buscando eventos para la fecha: {target_date}")
+    """Obtiene eventos del calendario (Versión temporal simulada)."""
+    logging.info(f"🤖 La IA solicitó 'get_events' para la fecha: {target_date}")
+    
+    # Devolvemos un evento de prueba para que la IA no se quede con las manos vacías
     return [
         {
-            "id": "e1",
-            "title": "Reunión de sincronización (Mock)",
-            "time": "10:00",
+            "id": "mock_1",
+            "title": "Reunión de prueba (Google Calendar Pendiente)",
+            "time": "15:00",
+            "location": "Virtual",
+            "description": "Falta descargar credentials.json para ver eventos reales.",
             "requires_preparation": False
         }
     ]
@@ -90,6 +90,7 @@ def complete_task(task_id: str) -> str:
         return f"Error al actualizar la base de datos: {str(e)}"
 
 if __name__ == "__main__":
-    # Ejecuta el servidor para que se quede escuchando peticiones
-    print("🚀 Iniciando Servidor FastMCP para Agenta...")
+    # ❌ ELIMINAMOS EL PRINT: print("🚀 Iniciando Servidor FastMCP para Agenta...")
+    # ✅ Usamos logging (que ahora va a stderr) si queremos ver el mensaje en la consola de Docker
+    logging.info("🚀 Iniciando Servidor FastMCP para Agenta...")
     mcp.run()

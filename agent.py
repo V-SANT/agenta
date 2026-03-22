@@ -1,248 +1,169 @@
-# agent.py
-# Agente de Asistente Personal construido con LangGraph + OpenAI + MCP
-
 import os
 import sys
 import json
 import asyncio
-from typing import TypedDict, Annotated, List
+from typing import TypedDict, Annotated, Literal
 from dotenv import load_dotenv
-from datetime import date, timedelta
 
+# LangChain y LangGraph
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
+from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
 
-# Librerías cliente de MCP
+# Cliente MCP
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# ─── CARGAR API KEY ───────────────────────────────────────────────────────────
+# ─── 1. CONFIGURACIÓN DEL LLM ────────────────────────────────────────────────
 load_dotenv()
+# Usamos un LLM con temperatura 0 para que sea preciso al tomar decisiones
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ No se encontró OPENAI_API_KEY.")
-
-# ─── MODELO LLM ───────────────────────────────────────────────────────────────
-llm = ChatOpenAI(
-    model="gpt-4o-mini",       
-    temperature=0.3,
-    api_key=OPENAI_API_KEY,
-)
-
-# ─── FUNCIONES DE FECHA ───────────────────────────────────────────────────────
-def get_today() -> str:
-    return date.today().strftime("%Y-%m-%d")
-
-def get_tomorrow() -> str:
-    return (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
-
-
-# ─── CLIENTE MCP ──────────────────────────────────────────────────────────────
-async def fetch_from_mcp(target_date: str):
-    """Se conecta al servidor MCP local para consumir las herramientas de datos."""
-    # Usamos sys.executable para asegurarnos de usar el Python del entorno virtual (agenta)
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["mcp_server.py"],
-        env=os.environ.copy()
-    )
-    
-    # Abrimos la conexión síncrona por consola (stdio)
+# ─── 2. PUENTE ENTRE LANGCHAIN Y MCP ─────────────────────────────────────────
+async def call_mcp_tool(tool_name: str, arguments: dict):
+    """Función maestra que levanta el cliente MCP de forma invisible y ejecuta una herramienta."""
+    server_params = StdioServerParameters(command=sys.executable, args=["mcp_server.py"], env=os.environ.copy())
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
+            res = await session.call_tool(tool_name, arguments=arguments)
             
-            # El agente ejecuta las herramientas del servidor
-            events_result = await session.call_tool("get_events", arguments={"target_date": target_date})
-            tasks_result = await session.call_tool("get_tasks", arguments={"status": "pending"})
+            text_response = res.content[0].text
             
-            # FastMCP devuelve el contenido como texto JSON, lo parseamos de vuelta a diccionarios
-            events = json.loads(events_result.content[0].text)
-            tasks = json.loads(tasks_result.content[0].text)
-            
-            return events, tasks
+            # Intentamos parsearlo como JSON (para listas de tareas o eventos)
+            try:
+                return json.loads(text_response)
+            # Si es texto normal (como el mensaje de éxito de add_task), lo devolvemos tal cual
+            except json.JSONDecodeError:
+                return text_response
 
-# ─── ESTADO DEL GRAFO ─────────────────────────────────────────────────────────
+# ─── 3. CREACIÓN DE LAS HERRAMIENTAS (TOOLS) PARA LOS AGENTES ────────────────
+@tool
+def add_task_tool(title: str, priority: str = "media", due_date: str = "") -> str:
+    """Guarda una nueva tarea en la base de datos MongoDB."""
+    return asyncio.run(call_mcp_tool("add_task", {"title": title, "priority": priority, "due_date": due_date}))
+
+@tool
+def get_tasks_tool(status: str = "pending") -> str:
+    """Obtiene la lista de tareas pendientes desde MongoDB."""
+    return str(asyncio.run(call_mcp_tool("get_tasks", {"status": status})))
+
+@tool
+def complete_task_tool(task_id: str) -> str:
+    """Marca una tarea como completada en MongoDB usando su ID."""
+    return asyncio.run(call_mcp_tool("complete_task", {"task_id": task_id}))
+
+@tool
+def get_events_tool(target_date: str) -> str:
+    """Obtiene eventos del calendario. (Ej formato: YYYY-MM-DD)."""
+    return str(asyncio.run(call_mcp_tool("get_events", {"target_date": target_date})))
+
+
+# ─── 4. ESTADO GLOBAL DEL ECOSISTEMA A2A ─────────────────────────────────────
 class AgentState(TypedDict):
-    messages: Annotated[List, add_messages]
-    today: str
-    tomorrow: str
-    today_events: List[dict]
-    today_tasks: List[dict]
-    tomorrow_events: List[dict]
-    tomorrow_tasks: List[dict]
-    daily_summary: str
-    preparation_tips: str
-    user_query: str
+    messages: Annotated[list, add_messages] # Guarda el historial del chat
+    next_agent: str                         # Guarda quién es el siguiente en actuar
 
-# ─── NODOS DEL GRAFO ──────────────────────────────────────────────────────────
+# ─── 5. CREACIÓN DE LOS AGENTES ESPECIALIZADOS (WORKERS) ─────────────────────
+# Usamos create_react_agent que les da la capacidad de pensar y usar herramientas
 
-def load_calendar_node(state: AgentState) -> AgentState:
-    """Carga los datos ejecutando el cliente MCP hacia nuestro servidor."""
-    today = get_today()
-    tomorrow = get_tomorrow()
+task_agent = create_react_agent(
+    llm,
+    tools=[add_task_tool, get_tasks_tool, complete_task_tool],
+    prompt="Eres un Gestor de Tareas. Usa tus herramientas para leer, agregar o completar tareas en la base de datos de MongoDB. Sé breve y confirma los cambios."
+)
 
-    print("\n🔌 [Agente] Conectando al servidor MCP...")
-    # Ejecutamos el cliente asíncrono desde nuestro nodo síncrono
-    today_events, today_tasks = asyncio.run(fetch_from_mcp(today))
-    tomorrow_events, tomorrow_tasks = asyncio.run(fetch_from_mcp(tomorrow))
-    print("✅ [Agente] Datos obtenidos mediante MCP con éxito.")
+calendar_agent = create_react_agent(
+    llm,
+    tools=[get_events_tool],
+    prompt="Eres un Asistente de Calendario. Consulta las reuniones del usuario usando tu herramienta. Devuelve un resumen claro y ordenado."
+)
 
-    return {
-        **state,
-        "today": today,
-        "tomorrow": tomorrow,
-        "today_events": today_events,
-        "today_tasks": today_tasks,
-        "tomorrow_events": tomorrow_events,
-        "tomorrow_tasks": tomorrow_tasks,
-    }
+summary_agent = create_react_agent(
+    llm,
+    tools=[get_tasks_tool, get_events_tool], 
+    prompt="Eres un Asistente Personal. Tu rol es conversar con el usuario, saludar, dar tips de productividad, y generar resúmenes diarios usando tus herramientas para consultar eventos y tareas pendientes."
+)
 
+# Envolturas (Nodos) para integrar los agentes al grafo principal
+def task_node(state: AgentState):
+    result = task_agent.invoke({"messages": state["messages"]})
+    return {"messages": [result["messages"][-1]]}
 
-def _format_events(events: List[dict]) -> str:
-    if not events:
-        return "  (sin eventos)"
-    lines = []
-    for e in events:
-        time_str = f"a las {e.get('time')}" if e.get('time') else "todo el día"
-        loc = f" | 📍 {e.get('location')}" if e.get('location') else ""
-        prep = " ⚠️ [requiere preparación]" if e.get('requires_preparation') else ""
-        lines.append(f"  • {time_str} — {e.get('title')}{loc}{prep}")
-        if e.get('description'):
-            lines.append(f"      └─ {e.get('description')}")
-    return "\n".join(lines)
+def calendar_node(state: AgentState):
+    result = calendar_agent.invoke({"messages": state["messages"]})
+    return {"messages": [result["messages"][-1]]}
+
+def summary_node(state: AgentState):
+    result = summary_agent.invoke({"messages": state["messages"]})
+    return {"messages": [result["messages"][-1]]}
 
 
-def _format_tasks(tasks: List[dict]) -> str:
-    if not tasks:
-        return "  (sin tareas pendientes)"
-    priority_icon = {"alta": "🔴", "media": "🟡", "baja": "🟢"}
-    lines = []
-    for t in tasks:
-        priority = t.get('priority', 'media')
-        icon = priority_icon.get(priority, "⚪")
-        lines.append(f"  {icon} [{priority.upper()}] {t.get('title')}")
-        if t.get('notes'):
-            lines.append(f"      └─ {t.get('notes')}")
-    return "\n".join(lines)
-
-
-def generate_daily_summary_node(state: AgentState) -> AgentState:
-    context = f"""
-Eres un asistente personal inteligente y organizado. Tu tarea es generar un 
-resumen claro, motivador y accionable del día para el usuario.
-
-=== FECHA DE HOY: {state['today']} ===
-
-EVENTOS DE HOY:
-{_format_events(state['today_events'])}
-
-TAREAS PENDIENTES HOY:
-{_format_tasks(state['today_tasks'])}
-
-=== MAÑANA: {state['tomorrow']} ===
-
-EVENTOS DE MAÑANA:
-{_format_events(state['tomorrow_events'])}
-
-TAREAS PENDIENTES MAÑANA:
-{_format_tasks(state['tomorrow_tasks'])}
-"""
-    prompt = """
-Genera un resumen del día de hoy con:
-1. Un saludo breve y motivador.
-2. Lista de eventos de hoy con su contexto.
-3. Lista de tareas urgentes de hoy.
-4. Un vistazo rápido a lo que viene mañana.
-5. Un consejo de productividad.
-"""
-    response = llm.invoke([SystemMessage(content=context), HumanMessage(content=prompt)])
-    return {**state, "daily_summary": response.content}
-
-
-def generate_preparation_tips_node(state: AgentState) -> AgentState:
-    tomorrow_events_prep = [e for e in state['tomorrow_events'] if e.get('requires_preparation')]
-
-    if not tomorrow_events_prep and not state['tomorrow_tasks']:
-        tips = "✅ Mañana parece un día tranquilo. ¡Aprovecha para avanzar en proyectos de largo plazo!"
-        return {**state, "preparation_tips": tips}
-
-    context = f"""
-Eres un asistente personal. Ayuda al usuario a prepararse para mañana ({state['tomorrow']}).
-
-EVENTOS DE MAÑANA QUE REQUIEREN PREPARACIÓN:
-{_format_events(tomorrow_events_prep)}
-
-TAREAS DE MAÑANA:
-{_format_tasks(state['tomorrow_tasks'])}
-"""
-    prompt = """
-Genera una lista concreta de preparativos que el usuario puede hacer HOY para 
-estar listo mañana. Sé específico, práctico y breve. Usa formato de checklist con emojis.
-"""
-    response = llm.invoke([SystemMessage(content=context), HumanMessage(content=prompt)])
-    return {**state, "preparation_tips": response.content}
-
-
-def respond_to_user_node(state: AgentState) -> AgentState:
-    if not state.get("user_query"):
-        return state
-
-    context = f"""
-Eres un asistente personal. Tienes acceso al calendario del usuario.
-RESUMEN DEL DÍA ({state['today']}): {state.get('daily_summary', '')}
-PREPARATIVOS PARA MAÑANA ({state['tomorrow']}): {state.get('preparation_tips', '')}
-Responde la pregunta del usuario de forma directa y útil.
-"""
-    response = llm.invoke([SystemMessage(content=context), HumanMessage(content=state["user_query"])])
-
-    new_messages = list(state.get("messages", []))
-    new_messages.append(HumanMessage(content=state["user_query"]))
-    new_messages.append(AIMessage(content=response.content))
-
-    return {**state, "messages": new_messages}
-
-
-def should_respond_to_query(state: AgentState) -> str:
-    if state.get("user_query"):
-        return "respond"
-    return "end"
-
-
-# ─── CONSTRUCCIÓN DEL GRAFO ───────────────────────────────────────────────────
-def build_agent() -> StateGraph:
-    graph = StateGraph(AgentState)
-    graph.add_node("load_calendar", load_calendar_node)
-    graph.add_node("generate_daily_summary", generate_daily_summary_node)
-    graph.add_node("generate_preparation_tips", generate_preparation_tips_node)
-    graph.add_node("respond_to_user", respond_to_user_node)
-
-    graph.set_entry_point("load_calendar")
-    graph.add_edge("load_calendar", "generate_daily_summary")
-    graph.add_edge("generate_daily_summary", "generate_preparation_tips")
-    graph.add_conditional_edges(
-        "generate_preparation_tips",
-        should_respond_to_query,
-        {"respond": "respond_to_user", "end": END},
+# ─── 6. EL AGENTE SUPERVISOR (ROUTER) ────────────────────────────────────────
+class Router(BaseModel):
+    next_agent: Literal["task_agent", "calendar_agent", "summary_agent", "FINISH"] = Field(
+        description="El agente que debe actuar. FINISH si el último mensaje ya responde la pregunta."
     )
-    graph.add_edge("respond_to_user", END)
 
-    return graph.compile()
+def supervisor_node(state: AgentState):
+    # Mecanismo de seguridad: Si ya respondió uno de los sub-agentes, terminamos el flujo.
+    if len(state["messages"]) > 1 and state["messages"][-1].type == "ai":
+        return {"next_agent": "FINISH"}
 
-def run_assistant(user_query: str = "") -> dict:
-    agent = build_agent()
-    initial_state: AgentState = {
-        "messages": [], "today": "", "tomorrow": "",
-        "today_events": [], "today_tasks": [], "tomorrow_events": [], "tomorrow_tasks": [],
-        "daily_summary": "", "preparation_tips": "", "user_query": user_query,
-    }
-    return agent.invoke(initial_state)
+    system_prompt = """Eres el Supervisor A2A. Tu tarea es leer la petición del usuario y derivarla al agente especialista correcto.
+    - task_agent: Si pide agregar, ver o completar tareas y pendientes.
+    - calendar_agent: Si hace preguntas sobre su agenda, eventos, reuniones o disponibilidad.
+    - summary_agent: Si es una charla general, saludos o pide tips de productividad.
+    - FINISH: Si la consulta del usuario ya fue resuelta."""
 
+    router = llm.with_structured_output(Router)
+    result = router.invoke([SystemMessage(content=system_prompt)] + state["messages"])
+    return {"next_agent": result.next_agent}
+
+
+# ─── 7. CONSTRUCCIÓN DEL GRAFO A2A ───────────────────────────────────────────
+workflow = StateGraph(AgentState)
+
+workflow.add_node("supervisor", supervisor_node)
+workflow.add_node("task_agent", task_node)
+workflow.add_node("calendar_agent", calendar_node)
+workflow.add_node("summary_agent", summary_node)
+
+workflow.add_edge(START, "supervisor")
+
+# El supervisor decide el próximo paso condicionalmente
+def route(state: AgentState):
+    if state["next_agent"] == "FINISH":
+        return END
+    return state["next_agent"]
+
+workflow.add_conditional_edges("supervisor", route)
+
+# Después de que un agente actúa, vuelve al supervisor para que evalúe (y finalice)
+workflow.add_edge("task_agent", "supervisor")
+workflow.add_edge("calendar_agent", "supervisor")
+workflow.add_edge("summary_agent", "supervisor")
+
+# Compilamos la aplicación
+agent_app = workflow.compile()
+
+# ─── FUNCIÓN PARA EJECUTAR ───────────────────────────────────────────────────
+def run_assistant(user_query: str) -> str:
+    """Función principal que inicia el flujo y devuelve la respuesta del agente."""
+    initial_state = {"messages": [HumanMessage(content=user_query)]}
+    result = agent_app.invoke(initial_state)
+    return result["messages"][-1].content
+
+# Pruebas en consola (solo se ejecuta si corres python agent.py)
 if __name__ == "__main__":
-    print("🤖 Iniciando Asistente Personal con MCP...")
-    result = run_assistant()
-    print("\n📅 RESUMEN DEL DÍA\n" + "="*60 + f"\n{result['daily_summary']}")
-    print("\n🗓️  PREPARATIVOS PARA MAÑANA\n" + "="*60 + f"\n{result['preparation_tips']}")
+    print("🤖 Sistema Multi-Agente A2A Iniciado (Escribe 'salir' para terminar)")
+    while True:
+        query = input("\nUsuario: ")
+        if query.lower() == "salir":
+            break
+        respuesta = run_assistant(query)
+        print(f"\nAgente: {respuesta}")
