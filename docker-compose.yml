@@ -9,7 +9,7 @@ services:
       - mongo_data:/data/db
     restart: unless-stopped
 
-  # 2. El servicio de tu Aplicación (Streamlit + Agentes)
+  # 2. El servicio de Agenta
   agenta-app:
     build: .
     container_name: agenta_app

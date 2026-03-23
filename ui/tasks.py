@@ -16,13 +16,13 @@ def render_tasks(tasks_collection):
             submitted = st.form_submit_button("Guardar Tarea")
             if submitted and titulo:
                 tasks_collection.insert_one({
-                    "title": titulo,
-                    "due_date": fecha.strftime('%Y-%m-%d'),
-                    "priority": prioridad,
-                    "completed": False
-                })
-                st.success("¡Tarea agregada exitosamente!")
-                st.rerun() # Recarga la app para mostrar la nueva tarea
+                "title": titulo,
+                "due_date": fecha.strftime('%Y-%m-%d'),
+                "priority": prioridad,
+                "completed": False
+            })
+            # Muestra una notificación flotante
+            st.toast("¡Tarea agregada exitosamente!", icon="✅")
 
     st.divider()
     
@@ -30,7 +30,7 @@ def render_tasks(tasks_collection):
     tareas_hoy = list(tasks_collection.find({"due_date": today_str}))
     
     if not tareas_hoy:
-        st.info(f"No hay tareas pendientes para hoy ({today_str}). Puedes agregar una desde el menú superior ➕ o pidiéndoselo a Agenta en el chat.")
+        st.info(f"No hay tareas pendientes para hoy ({today_str}). Puedes agregar una con el botón  o pidiéndoselo a Agenta en el chat.")
     else:
         st.subheader(f"Tus tareas para hoy")
         for t in tareas_hoy:

@@ -5,7 +5,14 @@ from bson.objectid import ObjectId
 from dotenv import load_dotenv
 import os
 import logging
-import sys
+import datetime
+import os
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
 # --- CONEXIÓN A MONGODB ---
 load_dotenv()
@@ -22,22 +29,66 @@ except Exception as e:
 # Inicializamos el servidor MCP dándole un nombre descriptivo
 mcp = FastMCP("AgentaDataServer")
 
+def get_calendar_service():
+    """Maneja la autenticación y devuelve el servicio de la API."""
+    creds = None
+    # Buscamos el token en la ruta actual
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        
+    # Si no hay credenciales o no son válidas
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            # Guardamos el token refrescado
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+        else:
+            raise Exception("No se encontró token.json válido en Docker. Por favor generarlo localmente.")
+            
+    return build('calendar', 'v3', credentials=creds)
+
 @mcp.tool()
 def get_events(target_date: str) -> List[Dict]:
-    """Obtiene eventos del calendario (Versión temporal simulada)."""
+    """Obtiene eventos reales del calendario del usuario."""
     logging.info(f"🤖 La IA solicitó 'get_events' para la fecha: {target_date}")
-    
-    # Devolvemos un evento de prueba para que la IA no se quede con las manos vacías
-    return [
-        {
-            "id": "mock_1",
-            "title": "Reunión de prueba (Google Calendar Pendiente)",
-            "time": "15:00",
-            "location": "Virtual",
-            "description": "Falta descargar credentials.json para ver eventos reales.",
-            "requires_preparation": False
-        }
-    ]
+    try:
+        service = get_calendar_service()
+        
+        # Convertir YYYY-MM-DD a formato RFC3339 requerido por Google
+        start_of_day = datetime.datetime.strptime(target_date, "%Y-%m-%d")
+        end_of_day = start_of_day + datetime.timedelta(days=1)
+        
+        time_min = start_of_day.isoformat() + 'Z'
+        time_max = end_of_day.isoformat() + 'Z'
+
+        events_result = service.events().list(
+            calendarId='primary', 
+            timeMin=time_min,
+            timeMax=time_max, 
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        events = events_result.get('items', [])
+        formatted_events = []
+        
+        for event in events:
+            # Capturar hora de inicio (puede ser evento de todo el día sin 'dateTime')
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            
+            formatted_events.append({
+                "id": event.get('id'),
+                "title": event.get('summary', 'Sin título'),
+                "time": start,
+                "location": event.get('location', 'Virtual/No especificada'),
+                "description": event.get('description', '')
+            })
+            
+        return formatted_events
+    except Exception as e:
+        logging.error(f"Error accediendo a Calendar API: {e}")
+        return [{"error": "No se pudo acceder a Google Calendar. Revisa las credenciales."}]
 
 @mcp.tool()
 def get_tasks(status: str = "pending") -> List[Dict]:

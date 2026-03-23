@@ -4,6 +4,7 @@ import json
 import asyncio
 from typing import TypedDict, Annotated, Literal
 from dotenv import load_dotenv
+import datetime
 
 # LangChain y LangGraph
 from langchain_openai import ChatOpenAI
@@ -32,6 +33,9 @@ async def call_mcp_tool(tool_name: str, arguments: dict):
             await session.initialize()
             res = await session.call_tool(tool_name, arguments=arguments)
             
+            if not res.content:
+                return "[]"
+
             text_response = res.content[0].text
             
             # Intentamos parsearlo como JSON (para listas de tareas o eventos)
@@ -86,7 +90,8 @@ calendar_agent = create_react_agent(
 summary_agent = create_react_agent(
     llm,
     tools=[get_tasks_tool, get_events_tool], 
-    prompt="Eres un Asistente Personal. Tu rol es conversar con el usuario, saludar, dar tips de productividad, y generar resúmenes diarios usando tus herramientas para consultar eventos y tareas pendientes."
+    prompt="Eres un Asistente Personal. Tu rol es conversar con el usuario, saludar, dar tips de productividad, y generar resúmenes diarios usando tus herramientas para consultar eventos y tareas pendientes." \
+           "Jamás inventes tareas o eventos, solo consulta usando las herramientas y resume la información. Sé amigable y útil."
 )
 
 # Envolturas (Nodos) para integrar los agentes al grafo principal
@@ -154,7 +159,14 @@ agent_app = workflow.compile()
 # ─── FUNCIÓN PARA EJECUTAR ───────────────────────────────────────────────────
 def run_assistant(user_query: str) -> str:
     """Función principal que inicia el flujo y devuelve la respuesta del agente."""
-    initial_state = {"messages": [HumanMessage(content=user_query)]}
+    
+    # 1. Calculamos la fecha y hora exacta en el momento de la consulta
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    
+    # 2. Le inyectamos la fecha al agente de forma invisible (como si fuera parte de tu mensaje)
+    mensaje_enriquecido = f"[Contexto del sistema: Ten en cuenta que la fecha de hoy es {today}].\n\nConsulta del usuario: {user_query}"
+    
+    initial_state = {"messages": [HumanMessage(content=mensaje_enriquecido)]}
     result = agent_app.invoke(initial_state)
     return result["messages"][-1].content
 

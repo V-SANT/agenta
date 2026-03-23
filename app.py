@@ -11,14 +11,21 @@ from ui.tasks import render_tasks
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["agenta_db"]
+
+@st.cache_resource
+def get_database():
+    client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+    return client["agenta_db"]
+
+db = get_database()
+
 tasks_collection = db["tasks"]
 
 st.set_page_config(page_title="AGENTA", page_icon="🤖", layout="wide")
-st.title("🤖 AGENTA")
+st.title("AGENTA")
 
 tab_home, tab_chat, tab_tasks = st.tabs([
-    "🏠 Home", "💬 Chat", "✅ Lista de Tareas"
+    "🏠 Home", "💬 Chat", "✅ Tareas"
 ])
 
 with tab_home:
