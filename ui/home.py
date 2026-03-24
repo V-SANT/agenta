@@ -4,7 +4,8 @@ import datetime
 from agent import run_assistant
 
 def render_home(tasks_collection):
-    today_str = datetime.date.today().strftime('%Y/%m/%d')
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    today_title = datetime.date.today().strftime('%Y/%m/%d')
 
     # --- CABECERA Y BOTÓN EN COLUMNAS ---
     # Dividimos el espacio: 85% para el título, 15% para el botón. 
@@ -12,7 +13,7 @@ def render_home(tasks_collection):
     col_titulo, col_boton = st.columns([0.85, 0.15], vertical_alignment="center")
     
     with col_titulo:
-        st.header(f"Resumen Diario - {today_str}")
+        st.header(f"Resumen Diario - {today_title}")
         
     with col_boton:
         # El botón ahora vive aquí arriba, junto al título
@@ -26,8 +27,10 @@ def render_home(tasks_collection):
     # 1. Verificar si hay tareas o eventos para hoy
     tareas_hoy = list(tasks_collection.find({"due_date": today_str}))
 
+    print(f"Tareas encontradas para hoy: {len(tareas_hoy)}") # Debug: Ver cuántas tareas se encuentran para hoy
+
     if not tareas_hoy:
-        st.info("¡Día libre! No tienes tareas ni eventos programados para hoy. Puedes agregar nuevos desde el chat, en la sección de Tareas o en el Calendario.")
+        st.info("¡Día libre! No tienes tareas ni eventos programados para hoy. Puedes agregar nuevos desde el Chat o en la sección de Tareas.")
 
     # 2. Sistema de Caché
     if "daily_summary" not in st.session_state or st.session_state.get("summary_date") != today_str:

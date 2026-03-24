@@ -21,7 +21,7 @@ tasks_collection = db["tasks"]
 # Configuración inicial de la página
 st.set_page_config(
     page_title="AGENTA", 
-    page_icon="🤖", 
+    page_icon="./resources/agenta_logo.png", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
