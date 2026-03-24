@@ -92,6 +92,10 @@ summary_agent = create_react_agent(
     tools=[get_tasks_tool, get_events_tool], 
     prompt="Eres un Asistente Personal. Tu rol es conversar con el usuario, saludar, dar tips de productividad, y generar resúmenes diarios usando tus herramientas para consultar eventos y tareas pendientes." \
            "Jamás inventes tareas o eventos, solo consulta usando las herramientas y resume la información. Sé amigable y útil."
+           "Si las tareas son anteriores a la fecha actual, ignóralas. Concéntrate solo en lo relevante para hoy." \
+           "Si las tareas estan completadas, colocalas con un check ✅. Para los eventos, muestra la hora y el título. Si no hay tareas o eventos, díselo al usuario de forma empática." \
+           "Para los preparativos de mañana, utiliza las tareas y eventos que tengas programados para el día siguiente como referencia, y sugiere un checklist de cosas a preparar (ej. documentos, materiales, etc)."
+
 )
 
 # Envolturas (Nodos) para integrar los agentes al grafo principal
