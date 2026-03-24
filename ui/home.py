@@ -1,7 +1,8 @@
 # ui/home.py
 import streamlit as st
 import datetime
-from agent import run_assistant
+import asyncio
+from agent import run_assistant, call_mcp_tool
 
 def render_home(tasks_collection):
     today_str = datetime.date.today().strftime('%Y-%m-%d')
@@ -9,7 +10,6 @@ def render_home(tasks_collection):
 
     # --- CABECERA Y BOTÓN EN COLUMNAS ---
     # Dividimos el espacio: 85% para el título, 15% para el botón. 
-    # vertical_alignment="center" asegura que queden a la misma altura.
     col_titulo, col_boton = st.columns([0.85, 0.15], vertical_alignment="center")
     
     with col_titulo:
@@ -24,17 +24,30 @@ def render_home(tasks_collection):
 
     st.divider() # Una línea separadora para que quede más prolijo
 
-    # 1. Verificar si hay tareas o eventos para hoy
+    # 1. Verificar si hay tareas para hoy en MongoDB
     tareas_hoy = list(tasks_collection.find({"due_date": today_str}))
 
-    print(f"Tareas encontradas para hoy: {len(tareas_hoy)}") # Debug: Ver cuántas tareas se encuentran para hoy
+    # 2. Verificar si hay eventos para hoy usando MCP directamente (sin gastar IA)
+    try:
+        eventos_hoy = asyncio.run(call_mcp_tool("get_events", {"target_date": today_str}))
+        # call_mcp_tool intenta devolver un JSON parseado (lista). 
+        # Evaluamos si es una lista con elementos o un texto válido.
+        if isinstance(eventos_hoy, list):
+            hay_eventos = len(eventos_hoy) > 0
+        else:
+            hay_eventos = bool(eventos_hoy and str(eventos_hoy).strip() not in ["", "[]"])
+    except Exception:
+        # En caso de error de conexión, asumimos False para que no se rompa la app
+        hay_eventos = False
 
-    if not tareas_hoy:
+    # 3. Mostrar el mensaje SOLO si no hay ni tareas ni eventos
+    if not tareas_hoy and not hay_eventos:
         st.info("¡Día libre! No tienes tareas ni eventos programados para hoy. Puedes agregar nuevos desde el Chat o en la sección de Tareas.")
 
-    # 2. Sistema de Caché
+    # 4. Sistema de Caché y Generación con IA
     if "daily_summary" not in st.session_state or st.session_state.get("summary_date") != today_str:
-        if tareas_hoy: # Solo generamos si hay contenido
+        # Ahora generamos el resumen si hay tareas O si hay eventos
+        if tareas_hoy or hay_eventos: 
             with st.spinner("Generando tu resumen diario automáticamente con IA..."):
                 prompt = "Genera un resumen detallado de hoy. Incluye mis eventos del calendario, mis tareas pendientes de la base de datos y un checklist de preparativos para mañana."
                 respuesta = run_assistant(prompt)
@@ -45,6 +58,6 @@ def render_home(tasks_collection):
         else:
              st.session_state.daily_summary = ""
 
-    # 3. Mostrar el resumen guardado
+    # 5. Mostrar el resumen guardado
     if st.session_state.get("daily_summary"):
         st.markdown(st.session_state.daily_summary)

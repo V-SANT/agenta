@@ -1,122 +1,158 @@
-# 🤖 AGENTA - Asistente Personal con LangGraph + OpenAI
+# 🤖 AGENTA - Asistente Personal con IA
 
-Agente de IA que actúa como tu asistente personal: te recuerda tus tareas del
-día y te sugiere preparativos para el día siguiente, usando LangGraph y GPT.
+AGENTA es un asistente personal inteligente diseñado para ayudarte a gestionar tu día a día. Se integra directamente con tu base de datos de tareas y tu Google Calendar para ofrecerte resúmenes diarios, recordatorios y una interfaz de chat conversacional para interactuar con tu agenda.
 
 ---
 
-## 📁 Estructura del proyecto
+## Stack Tecnológico
 
+* **Interfaz de Usuario (UI):** [Streamlit](https://streamlit.io/) para una experiencia web interactiva (Chat, Home, Gestor de Tareas).
+* **Orquestación de IA:** [LangGraph](https://python.langchain.com/v0.1/docs/langgraph/) y LangChain para el enrutamiento y la lógica de estado.
+* **Modelos de Lenguaje (LLM):** OpenAI (GPT-4o / GPT-4o-mini) configurados con temperatura baja para asegurar decisiones precisas.
+* **Integración de Datos:** Protocolo [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) utilizando la librería `fastmcp`.
+* **Base de Datos:** MongoDB para el almacenamiento persistente de tareas pendientes y completadas.
+* **APIs Externas:** Google Calendar API para la lectura en tiempo real de eventos y reuniones.
+* **Despliegue:** Docker y Docker Compose para la contenerización y ejecución simplificada.
+
+---
+
+## Uso de Agentes de IA para resolución de problemas
+
+Para evitar que un solo modelo se confunda intentando hacer todo a la vez, AGENTA utiliza una arquitectura basada en **Agentes Especializados (Workers)**. Cada agente tiene un prompt específico y acceso exclusivo a las herramientas que necesita para resolver su parte del problema mediante el framework ReAct (Reasoning and Acting).
+
+El sistema se compone de los siguientes agentes:
+1.  **Task Agent (Gestor de Tareas):** Especialista en interactuar con MongoDB. Puede leer, agregar y marcar tareas como completadas.
+2.  **Calendar Agent (Asistente de Calendario):** Su único trabajo es consultar la disponibilidad y las reuniones del usuario a través de Google Calendar.
+3.  **Summary Agent (Asistente Personal):** Encargado de la interacción amigable, generación de resúmenes diarios, revisión del ecosistema general y sugerencias de preparativos para el día siguiente.
+
+---
+
+## Explicación y manejo de MCPs (Model Context Protocol)
+
+El proyecto implementa un Servidor MCP (`mcp_server.py`) de forma nativa. 
+
+**¿Qué es MCP?**
+El Model Context Protocol es un estándar abierto que permite a los modelos de IA conectarse a fuentes de datos externas de forma segura y estandarizada. En lugar de escribir código espagueti en los prompts para leer una base de datos, levantamos un "Servidor de Herramientas".
+
+**Manejo en AGENTA:**
+En este proyecto, `mcp_server.py` levanta un servidor a través de `stdio` (entrada/salida estándar) utilizando `FastMCP`. Este servidor expone cuatro herramientas vitales:
+* `get_events`: Se conecta a la API de Google y trae los eventos formateados.
+* `get_tasks`: Consulta MongoDB filtrando por tareas completadas o pendientes.
+* `add_task`: Inserta un nuevo documento en la colección de Mongo.
+* `complete_task`: Actualiza el estado de una tarea por su ID.
+
+Luego, desde `agent.py`, el cliente MCP se conecta a este servidor de forma invisible, permitiendo que los agentes de LangChain invoquen estas funciones reales en el entorno local.
+
+---
+
+## Explicación de protocolo A2A (Agent to Agent)
+
+La magia de AGENTA reside en su flujo de trabajo **A2A (Agent-to-Agent)** orquestado por LangGraph. No es un simple chatbot de pregunta-respuesta, sino un grafo de estados por donde viaja la información.
+
+**El Flujo del Grafo:**
+1.  **El Supervisor:** Cuando el usuario hace una consulta, el mensaje entra primero al `supervisor_node`. Este agente actúa como el "router" o jefe de operaciones. Su trabajo no es responder, sino analizar la intención del usuario y decidir qué especialista debe actuar.
+2.  **Derivación (Routing):** Basado en la decisión del supervisor, el flujo salta al nodo correspondiente (`task_agent`, `calendar_agent`, o `summary_agent`).
+3.  **Ejecución y Retorno:** El especialista ejecuta su lógica, utiliza sus herramientas MCP, formula una respuesta y el ciclo vuelve al supervisor (o termina si la consulta fue completamente resuelta). 
+
+```mermaid
+graph TD
+    subgraph ui [Streamlit UI]
+        direction TB
+        A[User] -->|Chat/Query| B("Chat/Home UI")
+    end
+
+    subgraph agents [🤖 LangGraph Agents]
+        direction TB
+        C(supervisor_node<br>Router/Orchestrator)
+
+        C -.->|Delegation based on Intent| D{Worker_Agent?}
+        D -.->|tasks_intent| E[task_agent<br>MongoDB Worker]
+        D -.->|calendar_intent| F[calendar_agent<br>Calendar Worker]
+        D -.->|summary_intent| G[summary_agent<br>Summary Worker]
+
+        E -.->|Formulated Response| C
+        F -.->|Formulated Response| C
+        G -.->|Formulated Response| C
+
+        C -->|Final Answer| B
+    end
+
+    subgraph mcp_fastmcp [🔧 MCP Server - FastMCP]
+        direction LR
+        H(add_task)
+        I(get_tasks)
+        J(complete_task)
+        K(get_events)
+    end
+
+    subgraph external [🌐 External Systems]
+        direction LR
+        L(MongoDB<br>Docker)
+        M(Google Calendar API<br>OAuth2)
+    end
+
+    E -- "Reason/Act via MCP Tool" --> H
+    E -- "Reason/Act via MCP Tool" --> I
+    E -- "Reason/Act via MCP Tool" --> J
+
+    F -- "Reason/Act via MCP Tool" --> K
+
+    G -- "Synthesize Data via Tools" --> I
+    G -- "Synthesize Data via Tools" --> K
+
+    H --> L
+    I --> L
+    J --> L
+    K --> M
+
+    classDef ui fill:#d5f5e3,stroke:#239b56,stroke-width:2px;
+    classDef agent fill:#ebdef0,stroke:#8e44ad,stroke-width:2px;
+    classDef tool fill:#fef9e7,stroke:#f1c40f,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef external fill:#eaecee,stroke:#2c3e50,stroke-width:2px;
+
+    class B ui;
+    class C,E,F,G agent;
+    class H,I,J,K tool;
+    class L,M external;
 ```
-personal-assistant-agent/
-├── .env                ← Archivo de configuración para tu API key
-├── requirements.txt    ← Dependencias del proyecto
-├── calendar_data.py    ← Tus eventos y tareas del calendario
-└── agent.py            ← El agente LangGraph (lógica principal)
-```
 
----
 
-## 🔑 Dónde poner tu API Key de OpenAI
+## Guía de instalación
 
-1. Copia el archivo `.env.example` y renómbralo `.env`:
-   ```bash
-   cp .env.example .env
-   ```
+AGENTA está preparado para ejecutarse fácilmente en entornos aislados gracias a Docker. Sigue estos pasos para ponerlo en marcha:
 
-2. Abre `.env` y reemplaza la clave de ejemplo:
-   ```
-   OPENAI_API_KEY=sk-tu-clave-real-aqui
-   ```
+### 1. Requisitos previos
+* Tener instalado [Docker](https://www.docker.com/) y [Docker Compose](https://docs.docker.com/compose/).
+* Una API Key de OpenAI.
+* Credenciales de Google Cloud (`credentials.json`) habilitadas para la API de Google Calendar.
 
-3. ¡Listo! El agente la leerá automáticamente al iniciar.
-
----
-
-## 🚀 Instalación y ejecución
-
-### 1. Instalar dependencias
+### 2. Configuración del entorno
+Clona el repositorio y crea tu archivo de variables de entorno:
 ```bash
-pip install -r requirements.txt
+# Copia el archivo de ejemplo
+cp .env.example .env
 ```
+Edita el archivo .env e ingresa tu clave real de OpenAI:
 
-### 2. Agregar tus eventos y tareas
-Abre `calendar_data.py` y edita las listas `EVENTS` y `TASKS` con tus
-datos reales. Cada evento tiene estos campos:
-
-```python
-CalendarEvent(
-    id="e1",
-    title="Nombre del evento",
-    date="2025-02-20",        # formato YYYY-MM-DD
-    time="09:00",             # formato HH:MM
-    duration_minutes=60,
-    location="Lugar opcional",
-    description="Descripción",
-    requires_preparation=True,  # ¿Necesita prep previa?
-)
-
-Task(
-    id="t1",
-    title="Nombre de la tarea",
-    due_date="2025-02-20",
-    priority="alta",          # alta | media | baja
-    notes="Notas opcionales",
-)
-```
-
-### 3. Ejecutar el agente
 ```bash
-python agent.py
+OPENAI_API_KEY=sk-tu-clave-real-aqui
+MONGO_URI=mongodb://mongodb:27017  # Mantenlo así si usas Docker
 ```
+### 3. Autenticación de Google Calendar
+Coloca tu archivo credentials.json (descargado desde Google Cloud Console) en la raíz del proyecto.
 
----
+Nota: Para que el servidor de Docker funcione correctamente sin pedir interacciones de navegador, es recomendable ejecutar localmente el script para generar el archivo token.json primero, asegurándote de que exista en la carpeta raíz antes de levantar los contenedores. Para ello, coloca tu archivo `credentials.json` en la raiz del repositorio y ejecuta `python3 get_token.py`.
 
-## 🧠 Arquitectura del Grafo (LangGraph)
+###  4. Ejecución con Docker Compose
+Construye y levanta los servicios (MongoDB + Aplicación Streamlit):
 
+```bash
+docker-compose up -d --build
 ```
-[load_calendar]
-       │
-       ▼
-[generate_daily_summary]   ← LLM genera resumen del día
-       │
-       ▼
-[generate_preparation_tips] ← LLM genera preparativos para mañana
-       │
-       ├── ¿hay pregunta del usuario? ──► [respond_to_user] ──► END
-       │
-       └── no ──────────────────────────────────────────────► END
-```
+La base de datos MongoDB estará corriendo en el puerto 27017.
 
-### Descripción de cada nodo:
+El contenedor de la aplicación instalará las dependencias de requirements.txt automáticamente.
 
-| Nodo | Descripción |
-|------|-------------|
-| `load_calendar` | Carga eventos y tareas de hoy y mañana desde `calendar_data.py` |
-| `generate_daily_summary` | GPT genera un resumen motivador del día con contexto |
-| `generate_preparation_tips` | GPT sugiere preparativos concretos para el día siguiente |
-| `respond_to_user` | Responde preguntas específicas del usuario sobre su agenda |
-
----
-
-## 💬 Ejemplos de preguntas que puedes hacerle
-
-- *"¿A qué hora es mi primera reunión?"*
-- *"¿Cuánto tiempo tengo entre el almuerzo y la siguiente reunión?"*
-- *"¿Qué debo preparar para la presentación de mañana?"*
-- *"¿Cuál es mi tarea más urgente de hoy?"*
-
----
-
-## ⚙️ Personalización
-
-### Cambiar el modelo de OpenAI
-En `agent.py`, línea del `ChatOpenAI`:
-```python
-llm = ChatOpenAI(
-    model="gpt-4o",        # Más potente (más caro)
-    # model="gpt-4o-mini",  # Más económico (por defecto)
-    temperature=0.3,
-)
-```
-
+###  5. Acceso a la interfaz
+Una vez que los contenedores estén corriendo, abre tu navegador y visita:
+http://localhost:8501
