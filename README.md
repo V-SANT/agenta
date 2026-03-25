@@ -47,7 +47,7 @@ Luego, desde `agent.py`, el cliente MCP se conecta a este servidor de forma invi
 
 ## Explicación de protocolo A2A (Agent to Agent)
 
-La magia de AGENTA reside en su flujo de trabajo **A2A (Agent-to-Agent)** orquestado por LangGraph. No es un simple chatbot de pregunta-respuesta, sino un grafo de estados por donde viaja la información.
+El funcionamiento de AGENTA reside en su flujo de trabajo **A2A (Agent-to-Agent)** orquestado por LangGraph. No es un simple chatbot de pregunta-respuesta, sino un grafo de estados por donde viaja la información.
 
 **El Flujo del Grafo:**
 1.  **El Supervisor:** Cuando el usuario hace una consulta, el mensaje entra primero al `supervisor_node`. Este agente actúa como el "router" o jefe de operaciones. Su trabajo no es responder, sino analizar la intención del usuario y decidir qué especialista debe actuar.
@@ -116,21 +116,21 @@ graph TD
     class L,M external;
 ```
 
-
 ## Guía de instalación
-
 AGENTA está preparado para ejecutarse fácilmente en entornos aislados gracias a Docker. Sigue estos pasos para ponerlo en marcha:
 
-### 1. Requisitos previos
-* Tener instalado [Docker](https://www.docker.com/) y [Docker Compose](https://docs.docker.com/compose/).
-* Una API Key de OpenAI.
-* Credenciales de Google Cloud (`credentials.json`) habilitadas para la API de Google Calendar.
+1. Requisitos previos
+Tener instalado Docker y Docker Compose.
 
-### 2. Configuración del entorno
+Una API Key de OpenAI.
+
+Una cuenta de Google Cloud para generar credenciales de tipo Aplicación Web.
+
+2. Configuración del entorno
 Clona el repositorio y crea tu archivo de variables de entorno:
+
 ```bash
-# Copia el archivo de ejemplo
-cp .env.example .env
+touch .env
 ```
 Edita el archivo .env e ingresa tu clave real de OpenAI:
 
@@ -138,21 +138,34 @@ Edita el archivo .env e ingresa tu clave real de OpenAI:
 OPENAI_API_KEY=sk-tu-clave-real-aqui
 MONGO_URI=mongodb://mongodb:27017  # Mantenlo así si usas Docker
 ```
-### 3. Autenticación de Google Calendar
-Coloca tu archivo credentials.json (descargado desde Google Cloud Console) en la raíz del proyecto.
 
-Nota: Para que el servidor de Docker funcione correctamente sin pedir interacciones de navegador, es recomendable ejecutar localmente el script para generar el archivo token.json primero, asegurándote de que exista en la carpeta raíz antes de levantar los contenedores. Para ello, coloca tu archivo `credentials.json` en la raiz del repositorio y ejecuta `python3 get_token.py`.
+3. Autenticación de Google Calendar
+AGENTA maneja el inicio de sesión de Google de forma nativa desde la interfaz web. Para que esto funcione:
 
-###  4. Ejecución con Docker Compose
+Ve a la Consola de Google Cloud y crea una credencial de tipo ID de cliente de OAuth 2.0.
+
+Al crearla, asegúrate de seleccionar el Tipo de aplicación como Aplicación Web.
+
+En la sección URI de redireccionamiento autorizados, agrega explícitamente http://localhost:8501.
+
+Descarga el archivo JSON generado, renómbralo exactamente a `credentials.json` y colócalo en la raíz de este proyecto.
+
+(Nota: La aplicación generará y gestionará el archivo token.json automáticamente la primera vez que inicies sesión desde la plataforma, no necesitas ejecutar scripts adicionales).
+
+4. Ejecución con Docker Compose
 Construye y levanta los servicios (MongoDB + Aplicación Streamlit):
 
 ```bash
 docker-compose up -d --build
 ```
+
 La base de datos MongoDB estará corriendo en el puerto 27017.
 
 El contenedor de la aplicación instalará las dependencias de requirements.txt automáticamente.
 
-###  5. Acceso a la interfaz
-Una vez que los contenedores estén corriendo, abre tu navegador y visita:
-http://localhost:8501
+5. Acceso a la interfaz
+Una vez que los contenedores estén corriendo:
+
+Abre tu navegador y visita: http://localhost:8501
+
+En la barra lateral, haz clic en el botón "Conectar con Google Calendar" para autorizar el acceso a tu cuenta. ¡Y listo!

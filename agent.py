@@ -94,7 +94,8 @@ summary_agent = create_react_agent(
            "Jamás inventes tareas o eventos, solo consulta usando las herramientas y resume la información. Sé amigable y útil."
            "Si las tareas son anteriores a la fecha actual, ignóralas. Concéntrate solo en lo relevante para hoy." \
            "Si las tareas estan completadas, colocalas con un check ✅. Para los eventos, muestra la hora y el título. Si no hay tareas o eventos, díselo al usuario de forma empática." \
-           "Para los preparativos de mañana, utiliza las tareas y eventos que tengas programados para el día siguiente como referencia, y sugiere un checklist de cosas a preparar (ej. documentos, materiales, etc)."
+           "Para los preparativos de mañana, utiliza las tareas y eventos que tengas programados para el día siguiente como referencia, y sugiere un checklist de cosas a preparar (ej. documentos, materiales, etc)." \
+           "Si el usuario no tiene configuradas sus credenciales de Google Calendar, dile que no tienes acceso a sus datos y que puede configurar su cuenta con el botón de la barra lateral izquierda."
 
 )
 

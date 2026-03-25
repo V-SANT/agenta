@@ -9,6 +9,7 @@
 credentials.json
 token.json
 client_secret*.json
+.oauth_verifier
 
 # =========================
 # ENTORNOS VIRTUALES
