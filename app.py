@@ -7,9 +7,7 @@ from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 
-# ESTO ES CRUCIAL PARA DESARROLLO LOCAL: Permite usar HTTP en lugar de HTTPS
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-# NUEVO: Evita que la librería lance un error si Google agrega el scope "openid" automáticamente
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1' 
 
 from ui.home import render_home
@@ -23,7 +21,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
-    'openid' # NUEVO: Lo agregamos explícitamente para coincidir con Google
+    'openid' 
 ]
 REDIRECT_URI = 'http://localhost:8501'
 
@@ -130,20 +128,17 @@ with st.sidebar:
                     img_url = user_info.get("picture", "https://via.placeholder.com/150")
                     user_email = user_info.get("email", "")
                     
-                    # Reemplazamos st.image por HTML para usar el atributo 'title' (Hover) y hacerla redonda
                     st.markdown(
                         f"""
                         <div style="display: flex; justify-content: center; margin-top: 10px;">
-                            <img src="{img_url}" title="{user_email}" style="width: 100%; border-radius: 50%; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <img src="{img_url}" title="{user_email}" referrerpolicy="no-referrer" style="width: 100%; border-radius: 50%; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                         </div>
                         """, 
                         unsafe_allow_html=True
                     )
                 
-                # Nombre centrado usando HTML
                 st.markdown(f"<h4 style='text-align: center; margin-top: 10px; margin-bottom: 10px;'>{user_info.get('name', 'Usuario')}</h4>", unsafe_allow_html=True)
                 
-                # Botón para cerrar sesión
                 if st.button("Desconectar", use_container_width=True):
                     os.remove('token.json')
                     st.rerun()
